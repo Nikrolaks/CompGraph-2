@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
+#include <cmath>
 
 std::string to_string(std::string_view str)
 {
@@ -30,6 +31,9 @@ void glew_fail(std::string_view message, GLenum error)
 const char vertex_shader_source[] =
 R"(#version 330 core
 
+uniform mat4 transform;
+uniform mat4 shift;
+
 const vec2 VERTICES[3] = vec2[3](
     vec2(0.0, 1.0),
     vec2(-sqrt(0.75), -0.5),
@@ -46,8 +50,8 @@ out vec3 color;
 
 void main()
 {
-    vec2 position = VERTICES[gl_VertexID];
-    gl_Position = vec4(position, 0.0, 1.0);
+    vec2 pos = VERTICES[gl_VertexID];
+    gl_Position = (transform * shift) * vec4(pos, 0.0, 1.0);
     color = COLORS[gl_VertexID];
 }
 )";
@@ -148,6 +152,15 @@ int main() try
 
     auto last_frame_start = std::chrono::high_resolution_clock::now();
 
+    glUseProgram(program);
+
+    GLint
+        transform_loc = glGetUniformLocation(program, "transform"),
+        shift_loc = glGetUniformLocation(program, "shift");
+    float scale = 0.5, time = 0.0;
+
+    glBindVertexArray(vao);
+
     bool running = true;
     while (running)
     {
@@ -174,10 +187,33 @@ int main() try
         float dt = std::chrono::duration_cast<std::chrono::duration<float>>(now - last_frame_start).count();
         last_frame_start = now;
 
-        glClear(GL_COLOR_BUFFER_BIT);
+        time += dt;
 
-        glUseProgram(program);
-        glBindVertexArray(vao);
+        scale = (1.0) / 8;
+
+        float
+            x = 2.5 * cos(time * 0.5),
+            y = 2.5 * sin(time * 0.5),
+            angle = time * 2;
+
+        float shift[16] = {
+            1, 0, 0, x,
+            0, 1, 0, y,
+            0, 0, 1, 0,
+            0, 0, 0, 1
+        };
+
+        float transform[16] = {
+            scale * cos(angle), -scale * sin(angle),  0, 0,
+            scale * sin(angle),  scale * cos(angle),  0, 0,
+            0, 0, scale, 0,
+            0, 0, 0, 1
+        };
+
+        glUniformMatrix4fv(transform_loc, 1, GL_TRUE, transform);
+        glUniformMatrix4fv(shift_loc, 1, GL_TRUE, shift);
+
+        glClear(GL_COLOR_BUFFER_BIT);
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
         SDL_GL_SwapWindow(window);
