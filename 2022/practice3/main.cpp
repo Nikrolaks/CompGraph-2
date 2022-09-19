@@ -126,6 +126,16 @@ vec2 bezier(std::vector<vertex> const & vertices, float t)
     return points[0];
 }
 
+void AttributeStructure() {
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
+        sizeof(vertex), (void *)(0));
+    
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE,
+        sizeof(vertex), (void *)(8));
+}
+
 int main() try
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
@@ -172,7 +182,30 @@ int main() try
 
     auto last_frame_start = std::chrono::high_resolution_clock::now();
 
-    float time = 0.f;
+    float time = 0.f, aspect_ratio = float(width) / height;
+
+    vertex points[3] = {
+        {{112, 140}, {128, 0, 0, 255}},
+        {{130, 170}, {0, 128, 255, 255}},
+        {{123, 157}, {128, 0, 128, 255}}
+    };
+
+    // vao & vbo
+    GLuint buffers[2];
+    glGenVertexArrays(1, buffers);
+    glGenBuffers(1, buffers + 1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, buffers[1]);
+    AttributeStructure();
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertex) * 3, points, GL_STATIC_DRAW);
+
+    /*
+    vertex puk;
+    glGetBufferSubData(GL_ARRAY_BUFFER, 2 * sizeof(vertex), sizeof(vertex), &puk);
+
+    std::cout << puk.position.x << " " << puk.position.y << " "
+        << puk.color[0] << "." << puk.color[1] << "." << puk.color[2] << std::endl;
+    */
 
     bool running = true;
     while (running)
@@ -188,6 +221,7 @@ int main() try
                 width = event.window.data1;
                 height = event.window.data2;
                 glViewport(0, 0, width, height);
+                aspect_ratio = float(width) / height;
                 break;
             }
             break;
@@ -226,14 +260,23 @@ int main() try
 
         float view[16] =
         {
-            1.f, 0.f, 0.f, 0.f,
-            0.f, 1.f, 0.f, 0.f,
-            0.f, 0.f, 1.f, 0.f,
-            0.f, 0.f, 0.f, 1.f,
+            1.0 / aspect_ratio,    0.f, 0.f,   -1.0 / width,
+            0.f, - 1.0 / height, 0.f, -1.0 / height,
+            0.f, 0.f,            1.f,           0.f,
+            0.f, 0.f,            0.f,           1.f
         };
 
         glUseProgram(program);
+
+        glBindVertexArray(buffers[0]);
+
+        glBindBuffer(GL_ARRAY_BUFFER, buffers[1]);
+        AttributeStructure();
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertex) * 3, points, GL_STATIC_DRAW);
+
         glUniformMatrix4fv(view_location, 1, GL_TRUE, view);
+
+        glDrawArrays(GL_TRIANGLES, 0, 3);
 
         SDL_GL_SwapWindow(window);
     }
