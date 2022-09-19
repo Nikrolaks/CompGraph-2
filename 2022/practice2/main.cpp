@@ -32,18 +32,44 @@ const char vertex_shader_source[] =
 R"(#version 330 core
 
 uniform mat4 transform;
+uniform mat4 view;
 uniform mat4 shift;
 
-const vec2 VERTICES[3] = vec2[3](
-    vec2(0.0, 1.0),
-    vec2(-sqrt(0.75), -0.5),
-    vec2( sqrt(0.75), -0.5)
+const vec2 PS[6] = vec2[6](
+    vec2(cos(radians(30.0  )), sin(radians(30.0)  )),
+    vec2(cos(radians(90.0 )), sin(radians(90.0) )),
+    vec2(cos(radians(150.0)), sin(radians(150.0))),
+    vec2(cos(radians(210.0)), sin(radians(210.0))),
+    vec2(cos(radians(270.0)), sin(radians(270.0))),
+    vec2(cos(radians(330.0)), sin(radians(330.0)))
 );
 
-const vec3 COLORS[3] = vec3[3](
-    vec3(1.0, 0.0, 0.0),
-    vec3(0.0, 1.0, 0.0),
-    vec3(0.0, 0.0, 1.0)
+const vec2 VERTICES[18] = vec2[18](
+    vec2(0.0, 0.0), PS[0], PS[1],
+    vec2(0.0, 0.0), PS[1], PS[2],
+    vec2(0.0, 0.0), PS[2], PS[3],
+    vec2(0.0, 0.0), PS[3], PS[4],
+    vec2(0.0, 0.0), PS[4], PS[5],
+    vec2(0.0, 0.0), PS[5], PS[0]
+);
+
+const vec3 PCOLORS[7] = vec3[7](
+    vec3(0.25, 0.5, 0.75),
+    vec3(0.25, 0.75, 0.5),
+    vec3(0.5, 0.25, 0.75),
+    vec3(0.5, 0.75, 0.25),
+    vec3(0.75, 0.25, 0.5),
+    vec3(0.75, 0.5, 0.25),
+    vec3(1.0, 1.0, 1.0)
+);
+
+const vec3 COLORS[18] = vec3[18](
+    PCOLORS[6], PCOLORS[0], PCOLORS[1],
+    PCOLORS[6], PCOLORS[1], PCOLORS[2],
+    PCOLORS[6], PCOLORS[2], PCOLORS[3],
+    PCOLORS[6], PCOLORS[3], PCOLORS[4],
+    PCOLORS[6], PCOLORS[4], PCOLORS[5],
+    PCOLORS[6], PCOLORS[5], PCOLORS[0]
 );
 
 out vec3 color;
@@ -51,7 +77,7 @@ out vec3 color;
 void main()
 {
     vec2 pos = VERTICES[gl_VertexID];
-    gl_Position = (transform * shift) * vec4(pos, 0.0, 1.0);
+    gl_Position = (view * shift * transform) * vec4(pos, 0.0, 1.0);
     color = COLORS[gl_VertexID];
 }
 )";
@@ -134,6 +160,8 @@ int main() try
     if (!gl_context)
         sdl2_fail("SDL_GL_CreateContext: ");
 
+    SDL_GL_SetSwapInterval(0);
+
     if (auto result = glewInit(); result != GLEW_NO_ERROR)
         glew_fail("glewInit: ", result);
 
@@ -156,6 +184,7 @@ int main() try
 
     GLint
         transform_loc = glGetUniformLocation(program, "transform"),
+        view_loc = glGetUniformLocation(program, "view"),
         shift_loc = glGetUniformLocation(program, "shift");
     float scale = 0.5, time = 0.0;
 
@@ -187,34 +216,47 @@ int main() try
         float dt = std::chrono::duration_cast<std::chrono::duration<float>>(now - last_frame_start).count();
         last_frame_start = now;
 
+        //dt = 0.016f;
+
+        //std::cout << dt << std::endl;
+
         time += dt;
 
-        scale = (1.0) / 8;
+        scale = (1.0) / 2;
 
         float
-            x = 2.5 * cos(time * 0.5),
-            y = 2.5 * sin(time * 0.5),
-            angle = time * 2;
+            angle = time * 0.75,
+            x = -0.5 + 0.5 * cos(angle),
+            y = -0.5 + 0.5 * sin(angle),
+            aspect_ratio = float(width) / height;
 
-        float shift[16] = {
-            1, 0, 0, x,
-            0, 1, 0, y,
+        float transform[16] = {
+            cos(angle), -sin(angle),  0, 0,
+            sin(angle), cos(angle),  0, 0,
             0, 0, 1, 0,
             0, 0, 0, 1
         };
 
-        float transform[16] = {
-            scale * cos(angle), -scale * sin(angle),  0, 0,
-            scale * sin(angle),  scale * cos(angle),  0, 0,
-            0, 0, scale, 0,
+        float shift[16] = {
+            scale, 0, 0, x,
+            0, scale, 0, y,
+            0, 0, 1, 0,
             0, 0, 0, 1
         };
 
+        float view[16] = {
+            1 / aspect_ratio, 0, 0, 0,
+            0,                1, 0, 0,
+            0,                0, 1, 0,
+            0,                0, 0, 1
+        };
+
         glUniformMatrix4fv(transform_loc, 1, GL_TRUE, transform);
+        glUniformMatrix4fv(view_loc, 1, GL_TRUE, view);
         glUniformMatrix4fv(shift_loc, 1, GL_TRUE, shift);
 
         glClear(GL_COLOR_BUFFER_BIT);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glDrawArrays(GL_TRIANGLES, 0, 18);
 
         SDL_GL_SwapWindow(window);
     }
