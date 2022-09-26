@@ -76,7 +76,7 @@ int main() try
 
     bool running = true;
 
-    series *obj = new bezier();
+    series *obj = new seething();
     while (running)
     {
         for (SDL_Event event; SDL_PollEvent(&event);) switch (event.type)
