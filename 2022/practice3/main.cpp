@@ -54,7 +54,6 @@ int main() try
 
     int width, height;
     SDL_GetWindowSize(window, &width, &height);
-    series::resize(width, height);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context)
@@ -75,8 +74,20 @@ int main() try
     float time = 0.f;
 
     bool running = true;
-
-    series *obj = new seething();
+    series *obj = new canvas(std::shared_ptr<function>(new metaballs({
+        // metaball(std::shared_ptr<traectory>(new circle(20, 100, 20, 0, 1, 1)), 100, 2, 1) // debug ball
+        metaball(std::shared_ptr<traectory>(new circle(50, 600, 500, 0, 1, 2)), 70, 2, 1),
+        metaball(std::shared_ptr<traectory>(new circle(125, 700, 600, PI / 2, -1, 1.5)), 95, 0.5, -1),
+        metaball(std::shared_ptr<traectory>(new circle(130, 800, 300, 5 * PI / 6, 1, 0.6)), 120, 4, 1),
+        metaball(std::shared_ptr<traectory>(new circle(100, 1000, 300, 0, 1, 3)), 100, 3, 1),
+        metaball(std::shared_ptr<traectory>(new parabola(1000, 400, 400, 400, PI / 6, 1.5)), 40, 2, 1),
+        metaball(std::shared_ptr<traectory>(new circle(60, 1200, 500, 0, -1, 0.5)), 500, 5, 1),
+        metaball(std::shared_ptr<traectory>(new segment(100, 100, 1700, 900, PI / 2, 2.5)), 150, 2, -1),
+        metaball(std::shared_ptr<traectory>(new parabola(1300, 800, 700, -700, PI / 3, 0.75)), 140, 2, -1),
+        metaball(std::shared_ptr<traectory>(new circle(300, 550, 700, 0, -1, 1.5)), 200, 2.5, 1),
+        metaball(std::shared_ptr<traectory>(new segment(100, 600, 1700, 300, PI, 2.2)), 300, 2, 1),
+        metaball(std::shared_ptr<traectory>(new segment(1200, 200, 1200, 700, 0, 1.2)), 150, 3, -1),
+    })));
     while (running)
     {
         for (SDL_Event event; SDL_PollEvent(&event);) switch (event.type)
@@ -90,7 +101,7 @@ int main() try
                 width = event.window.data1;
                 height = event.window.data2;
                 glViewport(0, 0, width, height);
-                series::resize(width, height);
+                obj->resize(width, height);
                 break;
             }
             break;
@@ -109,11 +120,17 @@ int main() try
         case SDL_KEYDOWN:
             if (event.key.keysym.sym == SDLK_LEFT)
             {
-                obj->key_update();
+                obj->key_update(-1);
             }
             else if (event.key.keysym.sym == SDLK_RIGHT)
             {
-                obj->key_update(true);
+                obj->key_update(+1);
+            }
+            else if (event.key.keysym.sym == SDLK_DOWN) {
+                obj->key_update(-1, true);
+            }
+            else if (event.key.keysym.sym == SDLK_UP) {
+                obj->key_update(+1, true);
             }
             break;
         }

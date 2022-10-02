@@ -13,6 +13,8 @@ float series::view[16] = {
 
 float series::time = 0.f;
 
+int series::swidth = 0, series::sheight = 0;
+
 std::string load_shader(const std::filesystem::path& path) {
     std::ifstream shader_file;
     shader_file.open(path);
