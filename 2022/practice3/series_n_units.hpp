@@ -198,7 +198,8 @@ class isolines : public series {
 
 	procedure_t procedures [4];
 
-	void process_ceil(float c, const std::vector<float> &values, int x, int y, int above_func, int left_func) {
+	void process_ceil(float c, const std::vector<float> &values, int x, int y,
+		int above_func, int left_func) {
 		int lu = y * (w + 1) + x, ru = lu + 1, ld = lu + w + 1, rd = ld + 1;
 		bool slu = values[lu] > c, sld = values[ld] > c,
 			sru = values[ru] > c, srd = values[rd] > c;
@@ -254,7 +255,6 @@ class isolines : public series {
 	}
 
 	void attrib_structure(GLuint dummy = 0) override {
-		series::attrib_structure(0);
 		series::attrib_structure(0);
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, ( void * )(0));
@@ -387,7 +387,8 @@ private:
 
 		series::attrib_structure(1);
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vertex), (void*)(offsetof(vertex, color)));
+		glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vertex),
+			(void*)(offsetof(vertex, color)));
 	}
 public:
 	canvas(std::shared_ptr<function> Func) : series(series::make_program({
