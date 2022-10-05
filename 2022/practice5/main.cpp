@@ -41,27 +41,34 @@ uniform mat4 projection;
 
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
+layout (location = 2) in vec2 in_texcoord;
 
 out vec3 normal;
+out vec2 texcoord;
 
 void main()
 {
     gl_Position = projection * transform * vec4(in_position, 1.0);
     normal = mat3(transform) * in_normal;
+    texcoord = in_texcoord;
 }
 )";
 
 const char fragment_shader_source[] =
 R"(#version 330 core
 
+uniform sampler2D skin;
+uniform float time;
+
 in vec3 normal;
+in vec2 texcoord;
 
 layout (location = 0) out vec4 out_color;
 
 void main()
 {
     float lightness = 0.5 + 0.5 * dot(normalize(normal), normalize(vec3(1.0, 2.0, 3.0)));
-    vec3 albedo = vec3(1.0);
+    vec3 albedo = texture(skin, vec2(texcoord.x + time * 0.25, texcoord.y)).rgb;
     out_color = vec4(lightness * albedo, 1.0);
 }
 )";
@@ -165,6 +172,93 @@ int main() try
 
     std::map<SDL_Keycode, bool> button_down;
 
+    GLuint vao, vbo, ebo;
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+    glGenBuffers(1, &ebo);
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(obj_data::vertex),
+        ( void * )(offsetof(obj_data::vertex, position)));
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(obj_data::vertex),
+        ( void * )(offsetof(obj_data::vertex, normal)));
+
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(obj_data::vertex),
+        ( void * )(offsetof(obj_data::vertex, texcoord)));
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(obj_data::vertex) * cow.vertices.size(),
+        cow.vertices.data(), GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(std::uint32_t) * cow.indices.size(),
+        cow.indices.data(), GL_STATIC_DRAW);
+
+    GLuint skin;
+
+    GLuint skin_location = glGetUniformLocation(program, "skin");
+    GLuint time_location = glGetUniformLocation(program, "time");
+
+    glGenTextures(1, &skin);
+    glBindTexture(GL_TEXTURE_2D, skin);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S,
+        GL_REPEAT);
+
+    
+    int w, h, ch;
+    stbi_uc *skin_texture = stbi_load(cow_texture_path.c_str(), &w, &h, &ch, 4);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h,
+        0, GL_RGBA, GL_UNSIGNED_BYTE, skin_texture);
+
+    stbi_image_free(skin_texture);
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    /*
+    std::size_t size = 1024, len = 1024 / 8;
+
+    std::vector<std::uint32_t> pixels(size * size);
+    std::uint32_t colors[] = {
+        0xFF000000u,
+        0xFFFFFFFFu
+    };
+    for (std::size_t i = 0; i < size; ++i) {
+        int color = (i / len) & 1;
+        for (std::size_t j = i; j < size; ++j)
+            pixels[i * size + j] = colors[color ^ ((j / len) & 1)];
+    }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size,
+        0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    std::vector<std::uint32_t> red((size >> 1) * (size >> 1));
+    std::fill(red.begin(), red.end(), 0xFFFF0000u);
+
+    glTexImage2D(GL_TEXTURE_2D, 1, GL_RGBA8, (size >> 1), (size >> 1),
+        0, GL_RGBA, GL_UNSIGNED_BYTE, red.data());
+
+    std::vector<std::uint32_t> green((size >> 2) * (size >> 2));
+    std::fill(green.begin(), green.end(), 0xFF00FF00u);
+
+    glTexImage2D(GL_TEXTURE_2D, 2, GL_RGBA8, (size >> 2), (size >> 2),
+        0, GL_RGBA, GL_UNSIGNED_BYTE, green.data());
+
+    std::vector<std::uint32_t> blue((size >> 3) * (size >> 3));
+    std::fill(blue.begin(), blue.end(), 0xFF0000FFu);
+
+    glTexImage2D(GL_TEXTURE_2D, 3, GL_RGBA8, (size >> 3), (size >> 3),
+        0, GL_RGBA, GL_UNSIGNED_BYTE, blue.data());
+    */
+
     bool running = true;
     while (running)
     {
@@ -227,12 +321,22 @@ int main() try
             0.f, 0.f, -1.f, 0.f,
         };
 
+        glBindVertexArray(vao);
         glUseProgram(program);
         glUniformMatrix4fv(transform_location, 1, GL_TRUE, transform);
         glUniformMatrix4fv(projection_location, 1, GL_TRUE, projection);
+        glUniform1i(skin_location, 1);
+        glUniform1f(time_location, time);
+
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, skin);
+
+        glDrawElements(GL_TRIANGLES, cow.indices.size(), GL_UNSIGNED_INT, nullptr);
 
         SDL_GL_SwapWindow(window);
     }
+
+    glDeleteTextures(1, &skin);
 
     SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window);
