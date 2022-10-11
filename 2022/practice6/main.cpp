@@ -335,7 +335,7 @@ int main() try
         glUniform2f(center_location, -0.5f, -0.5f);
         glUniform2f(size_location, 0.5f, 0.5f);
         glBindVertexArray(rectangle_vao);
-//        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         SDL_GL_SwapWindow(window);
     }
