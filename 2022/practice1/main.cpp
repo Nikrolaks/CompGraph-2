@@ -1,15 +1,20 @@
-#ifdef WIN32
-#include <SDL.h>
-#undef main
-#else
-#include <SDL2/SDL.h>
-#endif
-
-#include <GL/glew.h>
-
 #include <string_view>
 #include <stdexcept>
 #include <iostream>
+#include <chrono>
+#include <vector>
+#include <map>
+#include <cmath>
+#include <fstream>
+#include <sstream>
+
+#define GLM_FORCE_SWIZZLE
+#define GLM_ENABLE_EXPERIMENTAL
+
+#include "series_n_units.hpp"
+
+
+animation_stats animation_stats::self;
 
 std::string to_string(std::string_view str)
 {
@@ -31,7 +36,16 @@ int main() try
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
         sdl2_fail("SDL_Init: ");
 
-    SDL_Window * window = SDL_CreateWindow("Graphics course practice 1",
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+
+    SDL_Window *window = SDL_CreateWindow("Graphics course practice 7",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         800, 600,
@@ -40,10 +54,8 @@ int main() try
     if (!window)
         sdl2_fail("SDL_CreateWindow: ");
 
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    int width, height;
+    SDL_GetWindowSize(window, &width, &height);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context)
@@ -55,22 +67,54 @@ int main() try
     if (!GLEW_VERSION_3_3)
         throw std::runtime_error("OpenGL 3.3 is not supported");
 
-    glClearColor(0.8f, 0.8f, 1.f, 0.f);
+    glClearColor(0.7f, 0.6f, 1.f, 0.f);
+
+    auto last_frame_start = std::chrono::high_resolution_clock::now();
+
+    float time = 0.f;
+
+    std::map<SDL_Keycode, bool> button_down;
+
+    series *obj = new scene_drawer(scene("sponza/sponza.obj"));
 
     bool running = true;
     while (running)
     {
-        for (SDL_Event event; SDL_PollEvent(&event);) switch (event.type)
-        {
-        case SDL_QUIT:
-            running = false;
-            break;
-        }
+        for (SDL_Event event; SDL_PollEvent(&event);)
+            switch (event.type)
+            {
+            case SDL_QUIT:
+                running = false;
+                break;
+            case SDL_WINDOWEVENT:
+                switch (event.window.event)
+                {
+                case SDL_WINDOWEVENT_RESIZED:
+                    width = event.window.data1;
+                    height = event.window.data2;
+                    ANIM.width = width;
+                    ANIM.height = height;
+                    break;
+                }
+                break;
+            case SDL_KEYDOWN:
+                button_down[event.key.keysym.sym] = true;
+                break;
+            case SDL_KEYUP:
+                button_down[event.key.keysym.sym] = false;
+                break;
+            }
 
         if (!running)
             break;
 
-        glClear(GL_COLOR_BUFFER_BIT);
+        auto now = std::chrono::high_resolution_clock::now();
+        float dt = std::chrono::duration_cast< std::chrono::duration<float> >(now - last_frame_start).count();
+        last_frame_start = now;
+        time += dt;
+        ANIM.update_state(button_down, dt);
+
+        obj->draw();
 
         SDL_GL_SwapWindow(window);
     }
