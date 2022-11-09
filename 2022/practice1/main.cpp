@@ -28,10 +28,10 @@ void sdl2_fail(std::string_view message)
 
 void glew_fail(std::string_view message, GLenum error)
 {
-    throw std::runtime_error(to_string(message) + reinterpret_cast<const char *>(glewGetErrorString(error)));
+    throw std::runtime_error(to_string(message) + reinterpret_cast< const char * >(glewGetErrorString(error)));
 }
 
-int main() try
+int mainu() try
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
         sdl2_fail("SDL_Init: ");
@@ -121,8 +121,10 @@ int main() try
 
     SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window);
+
+    return 0;
 }
-catch (std::exception const & e)
+catch (std::exception const &e)
 {
     std::cerr << e.what() << std::endl;
     return EXIT_FAILURE;

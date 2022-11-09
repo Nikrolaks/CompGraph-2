@@ -55,6 +55,7 @@ class scene {
 				parser >> texture_name;
 				mtl.albedo = path.parent_path();
 				mtl.albedo += "/" + texture_name;
+
 			}
 			else if (tag == "map_d") {
 				std::string texture_name;
@@ -80,8 +81,13 @@ public:
 
 	class group {
 	public:
-		material mtl;
-		std::vector<std::uint32_t> indices;
+		class surface {
+		public:
+			std::string mtl;
+			std::vector<std::uint32_t> indices;
+		};
+
+		std::vector<surface> shapes;
 	};
 
 	class vertex {
@@ -94,6 +100,10 @@ public:
 	std::vector<vertex> verticies;
 	std::map<std::string, group> objects;
 
+	// load scene from tinyobj
+	scene(const std::string &path, bool dummy) {
+	}
+
 	scene(const std::filesystem::path &path) {
 		std::ifstream in(path);
 
@@ -102,6 +112,7 @@ public:
 		std::string cur_mtl_name;
 		std::string cur_group_name;
 		group cur_group;
+		group::surface cur_surf;
 
 		std::string line;
 		std::size_t count = 0;
@@ -129,8 +140,10 @@ public:
 				read_mtllib(mtlpath);
 			}
 			else if (tag == "usemtl") {
+				if (cur_surf.mtl != "")
+					cur_group.shapes.push_back(cur_surf);
 				parser >> cur_mtl_name;
-				cur_group.mtl = material_map[cur_mtl_name];
+				cur_surf.mtl = cur_mtl_name;
 			}
 			else if (tag == "g") {
 				if (!cur_group_name.empty())
@@ -229,9 +242,9 @@ public:
 				}
 
 				for (std::size_t i = 1; i < vert.size() - 1; ++i) {
-					cur_group.indices.push_back(vert[0]);
-					cur_group.indices.push_back(vert[i]);
-					cur_group.indices.push_back(vert[i + 1]);
+					cur_surf.indices.push_back(vert[0]);
+					cur_surf.indices.push_back(vert[i]);
+					cur_surf.indices.push_back(vert[i + 1]);
 				}
 			}
 		}
