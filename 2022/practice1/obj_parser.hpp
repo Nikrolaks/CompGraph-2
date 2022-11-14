@@ -2,9 +2,34 @@
 
 #include <array>
 #include <vector>
+#include <map>
 #include <filesystem>
 
+#include "stb_image.h"
+
 struct obj_data
+{
+    std::vector<std::uint32_t> indices;
+    std::string tex_name;
+    bool texture_added = false;
+};
+
+struct tex_data
+{
+    struct image_data
+    {
+        stbi_uc * data = nullptr;
+        int x = 0, y = 0, channels = 0;
+        bool exists = false;
+    };
+
+    image_data albedo;
+    image_data alpha;
+    std::array<float, 3> glossiness = {0, 0, 0};
+    float power = 0;
+};
+
+struct scene_data
 {
     struct vertex
     {
@@ -14,7 +39,8 @@ struct obj_data
     };
 
     std::vector<vertex> vertices;
-    std::vector<std::uint32_t> indices;
+    std::map<std::string, tex_data*> tex_dict;
+    std::vector<obj_data*> objects;
 };
 
-obj_data parse_obj(std::filesystem::path const &path);
+scene_data parse_scene(std::filesystem::path const & path, std::string const & project_root);
