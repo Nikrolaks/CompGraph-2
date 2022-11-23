@@ -111,9 +111,57 @@ const float PI = 3.1415926535;
 
 in vec3 position;
 
+float absorption = 1.5;
+
+float scattering = 4.0;
+
+float extinsion = 1.5 + 4.0;
+
+vec3 light_color = vec3(46.0);
+
+uniform sampler3D text;
+
+vec3 turdunction(vec3 p) {
+    return (p - bbox_min) / (bbox_max - bbox_min);
+}
+
+float opicaltion(vec3 dir, vec3 pos, float t_min, float t_max, float N) {
+    float optical_depth = 0.0;
+    float dt = (t_max - t_min) / N;
+    float ind;
+    for (ind = 0.0; ind < N; ind += 1.0) {
+        float t = t_min + (ind + 0.5) * dt;
+        vec3 p = pos + t * dir;
+        float density = texture(text, turdunction(p)).r;
+        optical_depth += extinsion * density * dt;
+    }
+    return optical_depth;
+}
+
+vec4 ultration(vec3 dir, float t_min, float t_max, float N) {
+    vec3 color = vec3(0.0);
+    float optical_depth = 0.0;
+    float dt = (t_max - t_min) / N;
+    float ind;
+    for (ind = 0.0; ind < N; ind += 1.0) {
+        float t = t_min + (ind + 0.5) * dt;
+        vec3 p = camera_position + t * dir;
+        float density = texture(text, turdunction(p)).r;
+        optical_depth += extinsion * density * dt;
+        vec2 res = intersect_bbox(p, light_direction);
+        res.x = min(res.x, 0.0);
+        float light_optical_depth = opicaltion(light_direction, p, res.x, res.y, 16.0);
+        color += light_color * exp(-light_optical_depth) * exp(-optical_depth) * dt * density * scattering / 4.0 / PI;
+    }
+    return vec4(color, 1.0 - exp(-optical_depth));
+}
+
 void main()
 {
-    out_color = vec4(1.0, 0.5, 0.5, 1.0);
+    vec3 direction = normalize(position - camera_position);
+    vec2 res = intersect_bbox(camera_position, direction);
+    res.x = max(res.x, 0.0);
+    out_color = ultration(direction, res.x, res.y, 64.0);
 }
 )";
 
@@ -236,6 +284,7 @@ int main() try
     GLuint bbox_max_location = glGetUniformLocation(program, "bbox_max");
     GLuint camera_position_location = glGetUniformLocation(program, "camera_position");
     GLuint light_direction_location = glGetUniformLocation(program, "light_direction");
+    GLuint texture_sampler_location = glGetUniformLocation(program, "text");
 
     GLuint vao, vbo, ebo;
     glGenVertexArrays(1, &vao);
@@ -252,7 +301,7 @@ int main() try
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    const std::string project_root = PROJECT_ROOT;
+    const std::string project_root = ".";
     const std::string cloud_data_path = project_root + "/cloud.data";
 
     const glm::vec3 cloud_bbox_min{-2.f, -1.f, -1.f};
@@ -270,6 +319,24 @@ int main() try
     float camera_rotation = glm::pi<float>() / 6.f;
 
     bool paused = false;
+
+    GLuint text;
+    glGenTextures(1, &text);
+    glBindTexture(GL_TEXTURE_3D, text);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    std::vector<char> pixels(128 * 64 * 64);
+    std::ifstream input(cloud_data_path, std::ios::binary);
+
+    std::cout << input.is_open();
+
+    input.read(pixels.data(), pixels.size());
+
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R8, 128, 64, 64, 0, GL_RED, GL_UNSIGNED_BYTE, pixels.data());
 
     bool running = true;
     while (running)
@@ -357,6 +424,10 @@ int main() try
         glUniform3fv(bbox_max_location, 1, reinterpret_cast<const float *>(&cloud_bbox_max));
         glUniform3fv(camera_position_location, 1, reinterpret_cast<float *>(&camera_position));
         glUniform3fv(light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_3D, text);
+        glUniform1i(texture_sampler_location, 0);
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, std::size(cube_indices), GL_UNSIGNED_INT, nullptr);
