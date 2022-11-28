@@ -51,19 +51,27 @@ R"(#version 330 core
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4x3 bones[64];
 
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
 layout (location = 2) in vec2 in_texcoord;
+layout (location = 3) in ivec4 in_joints;
+layout (location = 4) in vec4 in_weights;
 
 out vec3 normal;
 out vec2 texcoord;
 
 void main()
 {
-    gl_Position = projection * view * model * vec4(in_position, 1.0);
-    normal = mat3(model) * in_normal;
+    mat4x3 average = 0.25 * (in_weights.x * bones[in_joints.x] +
+                             in_weights.y * bones[in_joints.y] +
+                             in_weights.z * bones[in_joints.z] +
+                             in_weights.w * bones[in_joints.w]);
+    gl_Position = projection * view * model * mat4(average) * vec4(in_position, 1.0);
+    normal = mat3(model) * mat3(average) * in_normal;
     texcoord = in_texcoord;
+    
 }
 )";
 
@@ -136,6 +144,44 @@ GLuint create_program(Shaders ... shaders)
     return result;
 }
 
+glm::mat4 gain_matrix(const gltf_model &input_model, std::size_t i, float time, float t) {
+    auto const &walk_animation = (*input_model.animations.find("02_walk")).second;
+    auto const &run_animation = (*input_model.animations.find("01_Run")).second;
+    float run_time = std::fmod(time, run_animation.max_time);
+    float walk_time = run_time / run_animation.max_time * walk_animation.max_time;
+    glm::mat4 transform =
+        glm::translate(glm::mat4(1.f), glm::lerp(
+            walk_animation.bones[i].translation(walk_time),
+            run_animation.bones[i].translation(run_time),
+            t
+        ))
+        * glm::toMat4(glm::slerp(
+            walk_animation.bones[i].rotation(walk_time),
+            run_animation.bones[i].rotation(run_time),
+            t
+        ))
+        * glm::scale(glm::mat4(1.f), glm::lerp(
+            walk_animation.bones[i].scale(walk_time),
+            run_animation.bones[i].scale(run_time),
+            t
+        ));
+    if (input_model.bones[i].parent != -1)
+        transform = gain_matrix(input_model, input_model.bones[i].parent, time, t) * transform;
+    return transform;
+}
+
+float mymin(float a, float b) {
+    if (a > b)
+        return b;
+    return a;
+}
+
+float mymax(float a, float b) {
+    if (a > b)
+        return a;
+    return b;
+}
+
 int main() try
 {
     if (SDL_Init(SDL_INIT_VIDEO) != 0)
@@ -185,6 +231,7 @@ int main() try
     GLuint color_location = glGetUniformLocation(program, "color");
     GLuint use_texture_location = glGetUniformLocation(program, "use_texture");
     GLuint light_direction_location = glGetUniformLocation(program, "light_direction");
+    GLuint bones_location = glGetUniformLocation(program, "bones");
 
     const std::string project_root = PROJECT_ROOT;
     const std::string model_path = project_root + "/wolf/Wolf-Blender-2.82a.gltf";
@@ -239,7 +286,7 @@ int main() try
         auto path = std::filesystem::path(model_path).parent_path() / *mesh.material.texture_path;
 
         int width, height, channels;
-        auto data = stbi_load(path.c_str(), &width, &height, &channels, 4);
+        auto data = stbi_load((const char*)path.u8string().c_str(), &width, &height, &channels, 4);
         assert(data);
 
         GLuint texture;
@@ -266,6 +313,8 @@ int main() try
 
     float camera_rotation = glm::pi<float>() * (- 1.f / 3.f);
     float camera_height = 0.25f;
+
+    float t = 0;
 
     bool paused = false;
 
@@ -307,9 +356,9 @@ int main() try
             time += dt;
 
         if (button_down[SDLK_UP])
-            camera_distance -= 3.f * dt;
+            camera_distance -= 1.f * dt;
         if (button_down[SDLK_DOWN])
-            camera_distance += 3.f * dt;
+            camera_distance += 1.f * dt;
 
         if (button_down[SDLK_a])
             camera_rotation -= 2.f * dt;
@@ -320,6 +369,11 @@ int main() try
             view_angle -= 2.f * dt;
         if (button_down[SDLK_s])
             view_angle += 2.f * dt;
+
+        if (button_down[SDLK_LSHIFT])
+            t = mymin(t + 1.f * dt, 1.0);
+        if (button_down[SDLK_RSHIFT])
+            t = mymax(t - 1.f * dt, 0.0);
 
         glClearColor(0.8f, 0.8f, 1.f, 0.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -332,6 +386,8 @@ int main() try
         float far = 100.f;
 
         glm::mat4 model(1.f);
+
+        model = glm::scale(model, glm::vec3(4.5f));
 
         glm::mat4 view(1.f);
         view = glm::translate(view, {0.f, 0.f, -camera_distance});
@@ -350,6 +406,20 @@ int main() try
         glUniformMatrix4fv(view_location, 1, GL_FALSE, reinterpret_cast<float *>(&view));
         glUniformMatrix4fv(projection_location, 1, GL_FALSE, reinterpret_cast<float *>(&projection));
         glUniform3fv(light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
+
+        float scale = 0.75 + cos(time) * 0.25;
+
+        std::vector<glm::mat4x3> bones(input_model.bones.size());
+
+        for (std::size_t i = 0; i < input_model.bones.size(); ++i) {
+            bones[i] = gain_matrix(input_model, i, time, t);
+        }
+
+        for (std::size_t i = 0; i < input_model.bones.size(); ++i) {
+            bones[i] = bones[i] * input_model.bones[i].inverse_bind_matrix;
+        }
+
+        glUniformMatrix4x3fv(bones_location, input_model.bones.size(), GL_FALSE, reinterpret_cast< float * >(bones.data()));
 
         auto draw_meshes = [&](bool transparent)
         {
