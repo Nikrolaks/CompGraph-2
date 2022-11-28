@@ -42,22 +42,17 @@ void sdl2_fail(std::string_view message)
 
 void glew_fail(std::string_view message, GLenum error)
 {
-    throw std::runtime_error(to_string(message) + reinterpret_cast<const char *>(glewGetErrorString(error)));
+    throw std::runtime_error(to_string(message) + reinterpret_cast< const char * >(glewGetErrorString(error)));
 }
 
 const char vertex_shader_source[] =
 R"(#version 330 core
-
 uniform mat4 view;
 uniform mat4 projection;
-
 uniform vec3 bbox_min;
 uniform vec3 bbox_max;
-
 layout (location = 0) in vec3 in_position;
-
 out vec3 position;
-
 void main()
 {
     position = bbox_min + in_position * (bbox_max - bbox_min);
@@ -67,14 +62,12 @@ void main()
 
 const char fragment_shader_source[] =
 R"(#version 330 core
-
+uniform sampler3D cloud_texture;
 uniform vec3 camera_position;
 uniform vec3 light_direction;
 uniform vec3 bbox_min;
 uniform vec3 bbox_max;
-
 layout (location = 0) out vec4 out_color;
-
 void sort(inout float x, inout float y)
 {
     if (x > y)
@@ -84,88 +77,69 @@ void sort(inout float x, inout float y)
         y = t;
     }
 }
-
 float vmin(vec3 v)
 {
     return min(v.x, min(v.y, v.z));
 }
-
 float vmax(vec3 v)
 {
     return max(v.x, max(v.y, v.z));
 }
-
 vec2 intersect_bbox(vec3 origin, vec3 direction)
 {
     vec3 tmin = (bbox_min - origin) / direction;
     vec3 tmax = (bbox_max - origin) / direction;
-
     sort(tmin.x, tmax.x);
     sort(tmin.y, tmax.y);
     sort(tmin.z, tmax.z);
-
     return vec2(vmax(tmin), vmin(tmax));
 }
-
+float tex_from_space(vec3 pos)
+{
+    return texture(cloud_texture, (pos - bbox_min) / (bbox_max - bbox_min)).x;
+}
 const float PI = 3.1415926535;
-
+const vec3 absorption = vec3(0.0, 0.0, 0.0);
+const vec3 scattering = vec3(8.0, 4.0, 2.0);
+const vec3 extinction = absorption + scattering;
+const vec3 light_color = vec3(16.0);
+const int N = 32;
+const int M = 8;
 in vec3 position;
-
-float absorption = 1.5;
-
-float scattering = 4.0;
-
-float extinsion = 1.5 + 4.0;
-
-vec3 light_color = vec3(46.0);
-
-uniform sampler3D text;
-
-vec3 turdunction(vec3 p) {
-    return (p - bbox_min) / (bbox_max - bbox_min);
-}
-
-float opicaltion(vec3 dir, vec3 pos, float t_min, float t_max, float N) {
-    float optical_depth = 0.0;
-    float dt = (t_max - t_min) / N;
-    float ind;
-    for (ind = 0.0; ind < N; ind += 1.0) {
-        float t = t_min + (ind + 0.5) * dt;
-        vec3 p = pos + t * dir;
-        float density = texture(text, turdunction(p)).r;
-        optical_depth += extinsion * density * dt;
-    }
-    return optical_depth;
-}
-
-vec4 ultration(vec3 dir, float t_min, float t_max, float N) {
-    vec3 color = vec3(0.0);
-    float optical_depth = 0.0;
-    float dt = (t_max - t_min) / N;
-    float ind;
-    for (ind = 0.0; ind < N; ind += 1.0) {
-        float t = t_min + (ind + 0.5) * dt;
-        vec3 p = camera_position + t * dir;
-        float density = texture(text, turdunction(p)).r;
-        optical_depth += extinsion * density * dt;
-        vec2 res = intersect_bbox(p, light_direction);
-        res.x = min(res.x, 0.0);
-        float light_optical_depth = opicaltion(light_direction, p, res.x, res.y, 16.0);
-        color += light_color * exp(-light_optical_depth) * exp(-optical_depth) * dt * density * scattering / 4.0 / PI;
-    }
-    return vec4(color, 1.0 - exp(-optical_depth));
-}
-
 void main()
 {
     vec3 direction = normalize(position - camera_position);
-    vec2 res = intersect_bbox(camera_position, direction);
-    res.x = max(res.x, 0.0);
-    out_color = ultration(direction, res.x, res.y, 64.0);
+    vec2 intersect_interval = intersect_bbox(camera_position, direction);
+    float tmin = intersect_interval.x;
+    float tmax = intersect_interval.y;
+    tmin = max(tmin, 0.0);
+    vec3 optical_depth = vec3(0);
+    vec3 color = vec3(0.0);
+    for (int i = 0; i < N; ++i)
+    {
+        float dt = (tmax - tmin) / N;
+        float t = tmin + (i + 0.5) * dt;
+        vec3 p = camera_position + t * direction;
+        float density = tex_from_space(p);
+        optical_depth += extinction * density * dt;
+        vec3 light_optical_depth = vec3(0);
+        vec2 ib = intersect_bbox(p, light_direction);
+        ib.x = max(ib.x, 0.0);
+        float ds = (ib.y - ib.x) / M;
+        for (int j = 0; j < M; ++j)
+        {
+            float s = ib.x + (j + 0.5) * ds;
+            vec3 q = p + s * light_direction;
+            light_optical_depth += extinction * tex_from_space(q) * ds;
+        }
+        color += light_color * exp(-light_optical_depth) * exp(-optical_depth) * dt * density * scattering / 4.0 / PI;
+    }
+    float opacity = 1.0 - exp(-optical_depth.x);
+    out_color = vec4(color, opacity);
 }
 )";
 
-GLuint create_shader(GLenum type, const char * source)
+GLuint create_shader(GLenum type, const char *source)
 {
     GLuint result = glCreateShader(type);
     glShaderSource(result, 1, &source, nullptr);
@@ -218,24 +192,24 @@ static glm::vec3 cube_vertices[]
 
 static std::uint32_t cube_indices[]
 {
-	// -Z
-	0, 2, 1,
-	1, 2, 3,
-	// +Z
-	4, 5, 6,
-	6, 5, 7,
-	// -Y
-	0, 1, 4,
-	4, 1, 5,
-	// +Y
-	2, 6, 3,
-	3, 6, 7,
-	// -X
-	0, 4, 2,
-	2, 4, 6,
-	// +X
-	1, 3, 5,
-	5, 3, 7,
+    // -Z
+    0, 2, 1,
+    1, 2, 3,
+    // +Z
+    4, 5, 6,
+    6, 5, 7,
+    // -Y
+    0, 1, 4,
+    4, 1, 5,
+    // +Y
+    2, 6, 3,
+    3, 6, 7,
+    // -X
+    0, 4, 2,
+    2, 4, 6,
+    // +X
+    1, 3, 5,
+    5, 3, 7,
 };
 
 int main() try
@@ -252,7 +226,7 @@ int main() try
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-    SDL_Window * window = SDL_CreateWindow("Graphics course practice 11",
+    SDL_Window *window = SDL_CreateWindow("Graphics course practice 11",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         800, 600,
@@ -284,7 +258,7 @@ int main() try
     GLuint bbox_max_location = glGetUniformLocation(program, "bbox_max");
     GLuint camera_position_location = glGetUniformLocation(program, "camera_position");
     GLuint light_direction_location = glGetUniformLocation(program, "light_direction");
-    GLuint texture_sampler_location = glGetUniformLocation(program, "text");
+    GLuint texture_location = glGetUniformLocation(program, "cloud_texture");
 
     GLuint vao, vbo, ebo;
     glGenVertexArrays(1, &vao);
@@ -301,11 +275,26 @@ int main() try
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    const std::string project_root = ".";
+    const std::string project_root = PROJECT_ROOT;
     const std::string cloud_data_path = project_root + "/cloud.data";
 
-    const glm::vec3 cloud_bbox_min{-2.f, -1.f, -1.f};
-    const glm::vec3 cloud_bbox_max{ 2.f,  1.f,  1.f};
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_3D, texture);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    int x = 128, y = 64, z = 64;
+    std::vector<char> pixels(x * y * z);
+    std::ifstream input(cloud_data_path, std::ios::binary);
+    input.read(pixels.data(), pixels.size());
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R8, x, y, z, 0, GL_RED, GL_UNSIGNED_BYTE, pixels.data());
+
+    const glm::vec3 cloud_bbox_min{ -2.f, -1.f, -1.f };
+    const glm::vec3 cloud_bbox_max{ 2.f,  1.f,  1.f };
 
     auto last_frame_start = std::chrono::high_resolution_clock::now();
 
@@ -320,24 +309,6 @@ int main() try
 
     bool paused = false;
 
-    GLuint text;
-    glGenTextures(1, &text);
-    glBindTexture(GL_TEXTURE_3D, text);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    std::vector<char> pixels(128 * 64 * 64);
-    std::ifstream input(cloud_data_path, std::ios::binary);
-
-    std::cout << input.is_open();
-
-    input.read(pixels.data(), pixels.size());
-
-    glTexImage3D(GL_TEXTURE_3D, 0, GL_R8, 128, 64, 64, 0, GL_RED, GL_UNSIGNED_BYTE, pixels.data());
-
     bool running = true;
     while (running)
     {
@@ -347,14 +318,14 @@ int main() try
             running = false;
             break;
         case SDL_WINDOWEVENT: switch (event.window.event)
-            {
-            case SDL_WINDOWEVENT_RESIZED:
-                width = event.window.data1;
-                height = event.window.data2;
-                glViewport(0, 0, width, height);
-                break;
-            }
+        {
+        case SDL_WINDOWEVENT_RESIZED:
+            width = event.window.data1;
+            height = event.window.data2;
+            glViewport(0, 0, width, height);
             break;
+        }
+                            break;
         case SDL_KEYDOWN:
             button_down[event.key.keysym.sym] = true;
             if (event.key.keysym.sym == SDLK_SPACE)
@@ -369,7 +340,7 @@ int main() try
             break;
 
         auto now = std::chrono::high_resolution_clock::now();
-        float dt = std::chrono::duration_cast<std::chrono::duration<float>>(now - last_frame_start).count();
+        float dt = std::chrono::duration_cast< std::chrono::duration<float> >(now - last_frame_start).count();
         last_frame_start = now;
 
         if (!paused)
@@ -390,7 +361,7 @@ int main() try
         if (button_down[SDLK_s])
             view_angle += 2.f * dt;
 
-        glClearColor(0.8f, 0.8f, 0.9f, 0.f);
+        glClearColor(0.f, 0.f, 0.f, 0.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glEnable(GL_DEPTH_TEST);
@@ -407,9 +378,9 @@ int main() try
         glm::mat4 model(1.f);
 
         glm::mat4 view(1.f);
-        view = glm::translate(view, {0.f, 0.f, -camera_distance});
-        view = glm::rotate(view, view_angle, {1.f, 0.f, 0.f});
-        view = glm::rotate(view, camera_rotation, {0.f, 1.f, 0.f});
+        view = glm::translate(view, { 0.f, 0.f, -camera_distance });
+        view = glm::rotate(view, view_angle, { 1.f, 0.f, 0.f });
+        view = glm::rotate(view, camera_rotation, { 0.f, 1.f, 0.f });
 
         glm::mat4 projection = glm::perspective(glm::pi<float>() / 2.f, (1.f * width) / height, near, far);
 
@@ -418,16 +389,13 @@ int main() try
         glm::vec3 light_direction = glm::normalize(glm::vec3(std::cos(time), 1.f, std::sin(time)));
 
         glUseProgram(program);
-        glUniformMatrix4fv(view_location, 1, GL_FALSE, reinterpret_cast<float *>(&view));
-        glUniformMatrix4fv(projection_location, 1, GL_FALSE, reinterpret_cast<float *>(&projection));
-        glUniform3fv(bbox_min_location, 1, reinterpret_cast<const float *>(&cloud_bbox_min));
-        glUniform3fv(bbox_max_location, 1, reinterpret_cast<const float *>(&cloud_bbox_max));
-        glUniform3fv(camera_position_location, 1, reinterpret_cast<float *>(&camera_position));
-        glUniform3fv(light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_3D, text);
-        glUniform1i(texture_sampler_location, 0);
+        glUniformMatrix4fv(view_location, 1, GL_FALSE, reinterpret_cast< float * >(&view));
+        glUniformMatrix4fv(projection_location, 1, GL_FALSE, reinterpret_cast< float * >(&projection));
+        glUniform3fv(bbox_min_location, 1, reinterpret_cast< const float * >(&cloud_bbox_min));
+        glUniform3fv(bbox_max_location, 1, reinterpret_cast< const float * >(&cloud_bbox_max));
+        glUniform3fv(camera_position_location, 1, reinterpret_cast< float * >(&camera_position));
+        glUniform3fv(light_direction_location, 1, reinterpret_cast< float * >(&light_direction));
+        glUniform1i(texture_location, 0);
 
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, std::size(cube_indices), GL_UNSIGNED_INT, nullptr);
@@ -438,7 +406,7 @@ int main() try
     SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window);
 }
-catch (std::exception const & e)
+catch (std::exception const &e)
 {
     std::cerr << e.what() << std::endl;
     return EXIT_FAILURE;
