@@ -56,13 +56,14 @@ uniform mat4 projection;
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
 layout (location = 2) in vec2 in_texcoord;
+layout (location = 3) in vec3 instance;
 
 out vec3 normal;
 out vec2 texcoord;
 
 void main()
 {
-    gl_Position = projection * view * model * vec4(in_position, 1.0);
+    gl_Position = projection * view * model * vec4(in_position + instance, 1.0);
     normal = mat3(model) * in_normal;
     texcoord = in_texcoord;
 }
@@ -185,8 +186,9 @@ int main() try
     const std::string model_path = project_root + "/bunny/bunny.gltf";
 
     auto const input_model = load_gltf(model_path);
-    GLuint vbo;
+    GLuint vbo, ivbo;
     glGenBuffers(1, &vbo);
+    glGenBuffers(1, &ivbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, input_model.buffer.size(), input_model.buffer.data(), GL_STATIC_DRAW);
 
@@ -209,6 +211,10 @@ int main() try
         setup_attribute(0, input_model.meshes[i].position);
         setup_attribute(1, input_model.meshes[i].normal);
         setup_attribute(2, input_model.meshes[i].texcoord);
+        glBindBuffer(GL_ARRAY_BUFFER, ivbo);
+        glEnableVertexAttribArray(3);
+        glVertexAttribDivisor(3, 1);
+        glVertexAttribPointer(3, 3, GL_FLOAT, false, 0, ( void * )(0));
 
         vaos.push_back(vao);
     }
@@ -220,7 +226,7 @@ int main() try
         auto path = std::filesystem::path(model_path).parent_path() / *mesh.material.texture_path;
 
         int width, height, channels;
-        auto data = stbi_load(path.c_str(), &width, &height, &channels, 4);
+        auto data = stbi_load(( const char * )path.u8string().c_str(), &width, &height, &channels, 4);
         assert(data);
 
         glGenTextures(1, &texture);
@@ -278,6 +284,8 @@ int main() try
         float dt = std::chrono::duration_cast<std::chrono::duration<float>>(now - last_frame_start).count();
         last_frame_start = now;
 
+        std::cout << 1 / dt << std::endl;
+
         if (!paused)
             time += dt;
 
@@ -329,17 +337,32 @@ int main() try
         glm::vec3 light_direction = glm::normalize(glm::vec3(1.f, 2.f, 3.f));
 
         glUseProgram(program);
-        glUniformMatrix4fv(model_location, 1, GL_FALSE, reinterpret_cast<float *>(&model));
         glUniformMatrix4fv(view_location, 1, GL_FALSE, reinterpret_cast<float *>(&view));
         glUniformMatrix4fv(projection_location, 1, GL_FALSE, reinterpret_cast<float *>(&projection));
         glUniform3fv(light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
 
         glBindTexture(GL_TEXTURE_2D, texture);
+       
+        glUniformMatrix4fv(model_location, 1, GL_FALSE, reinterpret_cast< float * >(&model));
+        auto const & mesh = input_model.meshes[0];
+        glBindVertexArray(vaos[0]);
 
-        {
-            auto const & mesh = input_model.meshes[0];
-            glBindVertexArray(vaos[0]);
-            glDrawElements(GL_TRIANGLES, mesh.indices.count, mesh.indices.type, reinterpret_cast<void *>(mesh.indices.view.offset));
+        glBindBuffer(GL_ARRAY_BUFFER, ivbo);
+        frustum f(projection * view);
+        std::vector<std::vector<glm::vec3>> shifts(6);
+        for (int i = -64; i < 32; ++i)
+            for (int k = -32; k < 32; ++k) {
+                glm::vec3 shift = glm::vec3(i, 0, k);
+                float LOD = 5 / (1 + glm::exp(-(shift - camera_position).length()));
+                aabb ab(input_model.meshes[5 - LOD].min + shift, input_model.meshes[5 - LOD].max + shift);
+                if (intersect(f, ab))
+                    shifts[5 - LOD].push_back(shift);
+            }
+
+        for (int i = 0; i < 6; ++i) {
+            glBufferData(GL_ARRAY_BUFFER, shifts[i].size() * sizeof(glm::vec3), shifts[i].data(), GL_STATIC_DRAW);
+            glDrawElementsInstanced(GL_TRIANGLES, mesh.indices.count, mesh.indices.type,
+                reinterpret_cast< void * >(mesh.indices.view.offset), shifts[i].size());
         }
 
         SDL_GL_SwapWindow(window);

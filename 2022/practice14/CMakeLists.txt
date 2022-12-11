@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(practice14)
+project(homework3)
 
 cmake_policy(SET CMP0072 NEW)
 cmake_policy(SET CMP0074 NEW)
@@ -24,17 +24,7 @@ set(TARGET_NAME "${PROJECT_NAME}")
 
 set(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
 
-add_executable(${TARGET_NAME} main.cpp
-	gltf_loader.hpp
-	gltf_loader.cpp
-	stb_image.h
-	stb_image.c
-	intersect.hpp
-	aabb.hpp
-	aabb.cpp
-	frustum.hpp
-	frustum.cpp
-)
+add_executable(${TARGET_NAME} main.cpp gltf_loader.hpp gltf_loader.cpp stb_image.h stb_image.c graphic_object.h)
 target_include_directories(${TARGET_NAME} PUBLIC
 	"${CMAKE_CURRENT_LIST_DIR}/rapidjson/include"
 	"${SDL2_INCLUDE_DIRS}"
@@ -46,8 +36,4 @@ target_link_libraries(${TARGET_NAME} PUBLIC
 	"${SDL2_LIBRARIES}"
 	"${OPENGL_LIBRARIES}"
 )
-target_compile_definitions(${TARGET_NAME} PUBLIC
-	-DPROJECT_ROOT="${PROJECT_ROOT}"
-	-DGLM_FORCE_SWIZZLE
-	-DGLM_ENABLE_EXPERIMENTAL
-)
+target_compile_definitions(${TARGET_NAME} PUBLIC -DPROJECT_ROOT="${PROJECT_ROOT}")
